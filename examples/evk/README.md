@@ -33,6 +33,8 @@ The CHIP Evaluation Kit contains the following hardware:
 * QPG6105 DK board, flashed with a CHIP Light application.
 * QR code pointing to the quickstart guide
 
+Note: the images referring to QPG6105DK are currently depicting a QPG6100DK and will be soon updated.
+
 This Evaluation kit will allow you to control a CHIP Light device implemented
 on the QPG6105 DK board using a WiFi connected Android™ device via the QPG7015M
 DK that implements a Thread Border Router:
