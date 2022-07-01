@@ -3,11 +3,14 @@
  */
 /* Generated for A25L080 SPIFLASH */
 
-upgrade_image_user_license_start__    = 0x4003800;
-upgrade_image_user_license_end__      = 0x40038ff;
+
+upgrade_image_user_license_start__    = 0x4005000;
+upgrade_image_user_license_end__      = 0x40050ff;
+
+
 /* Location of the application entry point */
-/* flash_start_abs 0x4000000 application_offset 0x4800 */
-__app_Start__                             =  0x4004800 ;
+/* flash_start_abs 0x4000000 application_offset 0x6000 */
+__app_Start__                             =  0x4006000 ;
 /* Memory Spaces Definitions */
 MEMORY
 {
@@ -43,8 +46,16 @@ SECTIONS
     .m_flashjumptable  m_flashjumptable_start_address :  {. = ALIGN(4); KEEP(*(.matterjumptable));   } > FLASH
 
     .bootloader 0x4001800 : { KEEP(*(bootloader.data)); } > FLASH
+    .upgrade_image_user_license   0x4005000 : {
+        /* fill with 0x00 to ensure it is erased */
+        FILL(0x00);
+        _upgrade_image_user_license_start = . ;
+        BYTE(0x00);
+        .  += 0x1000 - 1;
+    } > FLASH
     /* User license is first - only for FLASH programs. */
-    .loaded_user_license   0x4004800 : { KEEP(*(.loaded_user_license)); } > FLASH
+    .loaded_user_license   0x4006000 : { KEEP(*(.loaded_user_license)); } > FLASH
+    .extended_user_license   0x4006000 + 0x80 : { KEEP(*(.extended_user_license)); } > FLASH
 
     .isr_vector : ALIGN(0x100) { KEEP(*(.isr_vector)); } > FLASH
 
@@ -120,7 +131,11 @@ SECTIONS
     ram_m_start_address = 0x20039e00;
     ram_m_max_size = 0x2000;
 
-    .unused_area : { . += (ram_m_start_address - _elower_ram); } > RAM
+    ASSERT(. < ram_m_start_address, "SYSRAM is overflowing into the matter-rom RAM area")
+
+    .unused_area : {
+        . += (ram_m_start_address - _elower_ram);
+    } > RAM
 
     .rom_m_bss ram_m_start_address :
     {
@@ -209,6 +224,14 @@ SECTIONS
         libgcc.a ( * )
     }
 
+    .factory_data 0x4004500:
+    {
+        factory_data_Start = . ;
+        KEEP(*(factory_data.data));
+        .  = factory_data_Start + 0xb00;
+        factory_data_End = . ;
+    } > FLASH
+
     .JTOTA eFLASH - 0x61000:
     {
         JTOTA_Start = . ;
@@ -217,20 +240,20 @@ SECTIONS
         JTOTA_End = . ;
     } > FLASH
 
-    .gpNvm eFLASH - 0x4000:
-    {
-        gpNvm_Start = . ;
-        KEEP(*(gpNvm.data));
-        .  = gpNvm_Start + 0x4000;
-        gpNvm_End = . ;
-    } > FLASH
-
     .OTA eFLASH - 0x60000:
     {
         OTA_Start = . ;
         KEEP(*(OTA.data));
         .  = OTA_Start + 0x5c000;
         OTA_End = . ;
+    } > FLASH
+
+    .gpNvm eFLASH - 0x4000:
+    {
+        gpNvm_Start = . ;
+        KEEP(*(gpNvm.data));
+        .  = gpNvm_Start + 0x4000;
+        gpNvm_End = . ;
     } > FLASH
 
     /* Linker Symbols */

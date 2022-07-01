@@ -28,16 +28,15 @@ def bytes_to_long(s):
     return int(codecs.encode(s, 'hex'), 16)
 
 
-def getPrivatePublicKeysFromPEMFile(pemfilePath, password):
-    f = open(pemfilePath, "rb")
-    pem_file = f.read()
-    f.close()
+def getPrivatePublicKeysFromPEMFile(pemfilePath: str, password: bytes) -> (str, bytes, bytes):
+    with open(pemfilePath, "rb") as file_handle:
+        pem_file_data = file_handle.read(-1)
 
-    private_key_object = serialization.load_pem_private_key(pem_file, password, default_backend())
+    private_key_object = serialization.load_pem_private_key(pem_file_data, password, default_backend())
 
     # Get Private key
     privKey = private_key_object.private_numbers().private_value
-    privKey = binascii.unhexlify("%x" % privKey)
+    privKey = binascii.unhexlify(f"{privKey:x}")
 
     # Or another way which works for both p192 and p256
     pubKey = long_to_bytes(private_key_object.public_key().public_numbers().x) + long_to_bytes(
@@ -54,7 +53,7 @@ def hashMessage(message, hashfunc=hashlib.sha256):
     return m.hexdigest()
 
 
-def signMessage(message, privateKey, curve=NIST256p, hashfunc=hashlib.sha256):
+def signMessage(message, privateKey, curve=NIST256p, hashfunc=hashlib.sha256) -> bytes:
     """ Sign a arbitrary message with privateKey"""
     privKeyInstance = SigningKey.from_string(privateKey, curve=curve)
 

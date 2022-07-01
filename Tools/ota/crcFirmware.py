@@ -180,12 +180,8 @@ def get_license_data_to_hash(intel_hex_file, start_addr_license):
 
 
 def get_section_data_to_hash(intel_hex_file, start_addr, size, add_padding):
-    if add_padding:
-        logging.info("adding section [0x%lx,0x%lx] (size 0x%lx bytes) padding: true" % (
-            start_addr, start_addr + size, size))
-    else:
-        logging.info("adding section [0x%lx,0x%lx] (size 0x%lx bytes) padding: false" % (
-            start_addr, start_addr + size, size))
+    logging.info("adding section [0x%lx,0x%lx] (size 0x%lx bytes) padding: %r",
+                 start_addr, start_addr + size, size, add_padding)
     image = bytearray()
     for i in range(start_addr, start_addr + size):
         if add_padding:
@@ -215,7 +211,8 @@ def add_section(intel_hex_file, start_area, license_offset, section_number, argu
             # size = align_section_size((intel_hex_file.maxaddr() - (start_area + offset)), ALIGNMENT_SIZE)
             size = intel_hex_file.maxaddr() - (start_area + offset) + 1
 
-        logging.info("Setting section %d - start = 0x%lx - size = %d" % (section_number + 1, start_area + offset, size))
+        logging.info("Setting section %d - start = %#lx - size = %#x = %d", section_number + 1, start_area + offset,
+                     size, size)
 
         image.extend(get_section_data_to_hash(intel_hex_file, start_area + offset, size, padding))
 
@@ -298,7 +295,7 @@ def parse_command_line_arguments():
         logging.error("Supply HEX file path")
         sys.exit()
 
-    if not args.license_offset:
+    if args.license_offset is None:
         logging.warning("Using non-licensed approach")
 
         if not args.crc_start_addr:
@@ -333,7 +330,7 @@ def main():
 
     image = bytearray()
 
-    if args.license_offset:
+    if args.license_offset is not None:
         license_offset = int(args.license_offset, 16)
         license_address = start_addr_area + license_offset
 
@@ -347,9 +344,12 @@ def main():
         image.extend(get_license_data_to_hash(intel_hex_file, license_address))
 
     if args.set_bootloader_loaded:
-        logging.info("populating USER_LICENSE_PROGRAM_LOADED_MAGIC_WORD")
+        if 'license_address' not in locals():
+            license_address = start_addr_area
+        logging.info("populating USER_LICENSE_PROGRAM_LOADED_MAGIC_WORD at %#x",
+                     license_address + USER_LICENSE_LOAD_COMPLETED_OFFSET)
         ihex_set_uint32(intel_hex_file,
-                        start_addr_area + USER_LICENSE_LOAD_COMPLETED_OFFSET,
+                        license_address + USER_LICENSE_LOAD_COMPLETED_OFFSET,
                         USER_LICENSE_PROGRAM_LOADED_MAGIC_WORD)
     if args.set_user_license_bulk_erase_lock_magic_word:
         logging.info("populating USER_LICENSE_BULK_ERASE_LOCK_MAGIC_WORD")
@@ -368,6 +368,7 @@ def main():
         intel_hex_file.writePath = args.output
 
     # Overwrite the hex file with the modified (CRC'd) intel hex object
+    logging.info("Writing Hex file: %s", intel_hex_file.writePath)
     intel_hex_file.tofile(intel_hex_file.writePath, format='hex')
 
 

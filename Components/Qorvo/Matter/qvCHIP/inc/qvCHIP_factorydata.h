@@ -24,22 +24,21 @@
  * $DateTime$
  */
 
-/** @file "qvCHIP_NVM.h"
+/** @file "qvCHIP_KVS.h"
  *
- *  CHIP wrapper NVM API
+ *  CHIP wrapper KVS API
  *
- *  Declarations of the NVM specific public functions and enumerations of qvCHIP.
+ *  Declarations of the KVS specific public functions and enumerations of qvCHIP.
 */
 
-#ifndef _QVCHIP_NVM_H_
-#define _QVCHIP_NVM_H_
+#ifndef _QVCHIP_FACTORYDATA_H_
+#define _QVCHIP_FACTORYDATA_H_
 
 /*****************************************************************************
  *                    Includes Definitions
  *****************************************************************************/
 
 #include <stdint.h>
-#include <stdbool.h>
 
 /*****************************************************************************
  *                    Enum Definitions
@@ -68,45 +67,20 @@ extern "C" {
 /*****************************************************************************
  *                    NVM API
  *****************************************************************************/
-/** @brief Backup data to NVM for a given key.
- *
- *  @param key             Identifier for NVM area to backup.
- *  @param pRamLocation    Pointer to data to backup.
- *  @param length          Length of data to backup. Cannot exceed maximum length for the key.
- *  @return                QV_STATUS_NO_ERROR - No error
- *                         QV_STATUS_INVALID_ARGUMENT - one of the arguments is not valid
- *                         QV_STATUS_KEY_LEN_TOO_SMALL - the data is too large to backup to the key
+/** @brief Get Factory data
+ *  @param dst             pointer to write the requested data to
+ *  @param buffer_size     size of the buffer to write to
+ *  @param out data_length the number of bytes written to the buffer
+ *  @return                QV_STATUS_INVALID_ARGUMENT if data is NULL, QV_STATUS_BUFFER_TOO_SMALL if the returned data is too
+ *  large to fit the buffer, QV_STATUS_INVALID_DATA if the factory data is missing, otherwise QV_STATUS_NO_ERROR
 */
-qvStatus_t qvCHIP_Nvm_Backup(uint16_t key, const uint8_t* pRamLocation, uint16_t length);
-
-/** @brief Restore data from NVM for a given key.
- *
- *  @param key            Identifier for NVM area to restore.
- *  @param pRamLocation   Pointer to the RAM location to restore data to.
- *  @param length         Length of data to restore. Cannot exceed maximum length for the key.
- *                        If smaller than the maximum length a partial restore will be executed.
- *  @return               QV_STATUS_NO_ERROR - no error
- *                        QV_STATUS_INVALID_ARGUMENT - one of the arguments is not valid
- *                        QV_STATUS_INVALID_DATA - the data retrieved is not valid
-*/
-qvStatus_t qvCHIP_Nvm_Restore(uint16_t key, uint8_t* pRamLocation, uint16_t* length);
-
-/** @brief Remove data from NVM for a given key.
- *
- *  @param key             Identifier for NVM data to remove.
-*/
-void qvCHIP_Nvm_ClearValue(uint16_t key);
-
-/** @brief Returns true if data for a given key exists in NVM.
- *
- *  @param key             Identifier for NVM data to check for existence.
- *  @param length          Returns length of the data stored for the key.
- *  @return exists         Returns true if data exists for given key.
-*/
-bool qvCHIP_Nvm_ValueExists(uint16_t key, uint16_t* length);
-
+qvStatus_t qvCHIP_GetProductAttestationIntermediateCert(uint8_t* dst, uint32_t buffer_size, uint32_t* data_length);
+qvStatus_t qvCHIP_GetCertificationDeclaration(uint8_t* dst, uint32_t buffer_size, uint32_t* data_length);
+qvStatus_t qvCHIP_GetDeviceAttestationCert(uint8_t* dst, uint32_t buffer_size, uint32_t* data_length);
+qvStatus_t qvCHIP_GetDeviceAttestationPrivateKey(uint8_t* dst, uint32_t buffer_size, uint32_t* data_length);
+qvStatus_t qvCHIP_GetDeviceAttestationPublicKey(uint8_t* dst, uint32_t buffer_size, uint32_t* data_length);
 #ifdef __cplusplus
 }
 #endif //__cplusplus
 
-#endif //_QVCHIP_NVM_H_
+#endif //_QVCHIP_FACTORYDATA_H_

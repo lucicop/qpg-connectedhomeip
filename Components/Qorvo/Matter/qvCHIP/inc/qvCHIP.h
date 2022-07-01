@@ -62,6 +62,7 @@ typedef enum qvStatus_ {
 #include "qvCHIP_KVS.h"
 #include "qvCHIP_Ble.h"
 #include "qvCHIP_OTA.h"
+#include "qvCHIP_factorydata.h"
 
 /*****************************************************************************
  *                    Macro Definitions
@@ -86,11 +87,12 @@ extern "C" {
 /*****************************************************************************
  *                    Generic API
  *****************************************************************************/
+typedef void (*application_init_callback_t)(void);
 
 /** @brief Initialize Qorvo needed components for CHIP.
 *   @return result                   0 if init was successful. -1 when failed
 */
-int qvCHIP_init(void);
+int qvCHIP_init(application_init_callback_t application_init_callback);
 
 /** @brief Printf that outputs on Qorvo platforms.
 *

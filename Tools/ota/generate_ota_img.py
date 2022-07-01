@@ -6,26 +6,50 @@ import os
 import logging
 import shutil
 import subprocess
+from dataclasses import dataclass
 
 DESCRIPTION = """\
-Turn a Matter application build hex-file into an OTA image by:
-- adding metadata to Qorvo datastructures
-- applying compression
-- adding matter-header
+Turn a Matter application build hex-file into a bootable image and generate an ota image
 """
+
+
+@dataclass
+class GenerateOtaImageArguments:
+    """helper to enforce type checking on argparse output"""
+    chip_config_header: str
+    chip_root: str
+    in_file: str
+    out_file: str
+    version: int
+    version_str: str
+    vendor_id: str
+    product_id: str
+    sign: bool
+    pem_file_path: str
+    pem_password: str
+    flash_app_start_offset: int
+    compression: str
+    prune_only: bool
+
+
+DEFAULT_FLASH_APP_START_OFFSET = 0x6000
+UPGRADE_SECUREBOOT_PUBLICKEY_OFFSET = 0x1800
+LICENSE_SIZE = 0x100
 
 SCRIPT_PATH = os.path.dirname(__file__)
 CRCFIRMWARE_PATH = f"{SCRIPT_PATH}/crcFirmware.py"
 HEX2BIN_PATH = f"{SCRIPT_PATH}/hex2bin.py"
 COMPRESSFIRMWARE_PATH = f"{SCRIPT_PATH}/compressFirmware.py"
+SIGNFIRMWARE_PATH = f"{SCRIPT_PATH}/signFirmware.py"
 
 if not os.path.isfile(os.path.join(SCRIPT_PATH, "crypto_utils.py")):
     CRCFIRMWARE_PATH = os.getenv("QORVO_CRCFIRMWARE_PATH", CRCFIRMWARE_PATH)
     HEX2BIN_PATH = os.getenv("QORVO_HEX2BIN_PATH", HEX2BIN_PATH)
     COMPRESSFIRMWARE_PATH = os.getenv("QORVO_COMPRESSFIRMWARE_PATH", COMPRESSFIRMWARE_PATH)
+    SIGNFIRMWARE_PATH = os.getenv("QORVO_SIGNFIRMWARE_PATH", SIGNFIRMWARE_PATH)
 
 
-def parse_command_line_arguments():
+def parse_command_line_arguments() -> GenerateOtaImageArguments:
     """Parse command-line arguments"""
     def any_base_int(string):
         return int(string, 0)
@@ -46,8 +70,27 @@ def parse_command_line_arguments():
     parser.add_argument('-vs', '--version-str', help='Software version (string)', default="1.0")
     parser.add_argument('-vid', '--vendor-id', help='Vendor ID (string)', default=None)
     parser.add_argument('-pid', '--product-id', help='Product ID (string)', default=None)
+    parser.add_argument('--sign', help='sign firmware', action='store_true')
+    parser.add_argument('--pem_file_path', help='PEM file path (string)', default=None)
+    parser.add_argument('--pem_password', help='PEM file password (string)', default=None)
+    parser.add_argument('--flash_app_start_offset',
+                        type=any_base_int,
+                        help='Offset of the application in program flash',
+                        default=DEFAULT_FLASH_APP_START_OFFSET)
+    parser.add_argument("--compression",
+                        choices=['none', 'lzma'],
+                        default="lzma",
+                        help="compression type (default to none)")
+    parser.add_argument("--prune_only",
+                        help="prune unneeded sections; don't add an upgrade user license (external storage scenario)",
+                        action='store_true')
 
     args = parser.parse_args()
+
+    return GenerateOtaImageArguments(**vars(args))
+
+
+def validate_arguments(args: GenerateOtaImageArguments):
     if not args.chip_root:
         logging.error("Supply Matter root directory")
         sys.exit(-1)
@@ -64,11 +107,11 @@ def parse_command_line_arguments():
         logging.error("Supply an output file")
         sys.exit(-1)
 
-    return args
-
 
 def run_script(command: str):
     """ run a python script using the current interpreter """
+    assert command != ""
+    logging.info("%s", command)
     subprocess.check_output(f"{sys.executable} {command}", shell=True)
 
 
@@ -91,7 +134,7 @@ def extract_vid_and_pid(chip_config_header: str):
     return vid, pid
 
 
-def determine_example_project_config_header(args):
+def determine_example_project_config_header(args: GenerateOtaImageArguments):
     """ Determine the CHIPProjectConfig.h path of a matter-sourcetree based example application."""
     if 'lighting' in args.in_file:
         project_name = 'lighting-app'
@@ -107,7 +150,7 @@ def determine_example_project_config_header(args):
     return f"{args.chip_root}/examples/{project_name}/qpg/include/CHIPProjectConfig.h"
 
 
-def determine_vid_and_pid_values(args):
+def determine_vid_and_pid_values(args: GenerateOtaImageArguments):
     """ Decide which vendorid and productid the user wants to use """
     if not args.vendor_id and not args.product_id:
         used_chip_config_header = args.chip_config_header or determine_example_project_config_header(args)
@@ -118,26 +161,56 @@ def determine_vid_and_pid_values(args):
     return (args.vendor_id, args.product_id)
 
 
-def create_ota_payload(input_path: str):
-    """ Run Qorvo ota processing steps """
-    input_base_path = os.path.splitext(input_path)[0]
-    intermediate_crc_added = f"{input_base_path}-crc.hex"
-    intermediate_crc_added_binary = f"{input_base_path}-crc.bin"
+def post_process_image(args: GenerateOtaImageArguments):
+    """Run Qorvo image post-processing steps
+
+    WARNING: THIS FUNCTION MODIFIES THE INPUT FILE!
+
+    Add necessary metadata for the bootloader to process
+    * crc/sign, set application loaded by bootloader flag
+    """
+
+    input_base_path = os.path.splitext(args.in_file)[0]
+    copy_of_unmodified_input = f"{input_base_path}.input.hex"
+
+    # we modify in place, keep a copy of the input for reference
+    shutil.copyfile(args.in_file, copy_of_unmodified_input)
+
+    common_arguments = (" --set_bootloader_loaded"
+                        f" --hex {args.in_file}"
+                        f" --license_offset {args.flash_app_start_offset:#x}"
+                        f" --section1 {args.flash_app_start_offset+LICENSE_SIZE:#x}:0xffffffff"
+                        " --section2 0x800:0x1000"
+                        f" --start_addr_area 0x4000000"
+                        )
+
+    if args.sign:
+        run_script(f"{SIGNFIRMWARE_PATH}"
+                   f" --pem {args.pem_file_path} "
+                   f" --pem_password {args.pem_password}"
+                   f" --write_secureboot_public_key {UPGRADE_SECUREBOOT_PUBLICKEY_OFFSET:#x}"
+                   f"{common_arguments}")
+    else:
+        run_script(f"{CRCFIRMWARE_PATH} --add_crc"
+                   f" {common_arguments}")
+
+
+def compress_ota_payload(args: GenerateOtaImageArguments):
+    """Apply compression and add metadata for the Qorvo bootloader"""
+    input_base_path = os.path.splitext(args.in_file)[0]
+    intermediate_hash_added_binary = f"{input_base_path}-with-hash.bin"
     intermediate_compressed_binary_path = f"{input_base_path}.compressed.bin"
-
-    # crcFirmware modifies in place, so copy
-    shutil.copyfile(input_path, intermediate_crc_added)
-
-    run_script(f"{CRCFIRMWARE_PATH} --add_crc --add_padding"
-               f" --hex {intermediate_crc_added} --license_offset 0x4800"
-               f" --section1 0x00004900:0xffffffff --section2 0x800:0x1000"
-               f" --start_addr_area 0x4000000"
-               )
-    run_script(f"{HEX2BIN_PATH} {intermediate_crc_added} {intermediate_crc_added_binary}")
-    run_script(f"{COMPRESSFIRMWARE_PATH} --add_crc"
-               f" --input {intermediate_crc_added_binary}"
-               " --license_offset 0x47f0 --ota_offset 0xa0000"
-               f" --output {intermediate_compressed_binary_path} --page_size 0x200 --sector_size 0x400"
+    run_script(f"{HEX2BIN_PATH} {args.in_file} {intermediate_hash_added_binary}")
+    run_script(f"{COMPRESSFIRMWARE_PATH} "
+               f"{'' if args.sign else '--add_crc'}"
+               f" --compression={args.compression}"
+               f" {'--prune_only' if args.prune_only else ''}"
+               f" --input {intermediate_hash_added_binary}"
+               f" --license_offset {args.flash_app_start_offset-0x10:#x} --ota_offset 0xa0000"
+               f" --output {intermediate_compressed_binary_path}"
+               " --page_size 0x200 --sector_size 0x400"
+               + (f" --pem {args.pem_file_path} "
+                  f" --pem_password {args.pem_password}" if args.sign and not args.prune_only else "")
                )
     return intermediate_compressed_binary_path
 
@@ -145,12 +218,19 @@ def create_ota_payload(input_path: str):
 def main():
     """ Main """
 
+    logging.basicConfig(level=logging.INFO)
+
     args = parse_command_line_arguments()
+
+    validate_arguments(args)
 
     (vid, pid) = determine_vid_and_pid_values(args)
 
+    # Bootable image preparation
+    post_process_image(args)
+
     # Qorvo specific OTA preparation
-    intermediate_compressed_binary_path = create_ota_payload(args.in_file)
+    intermediate_compressed_binary_path = compress_ota_payload(args)
 
     # Matter header wrapping
     tool_args = f"create -v {vid} -p {pid} -vn {args.version} -vs {args.version_str} -da sha256 "
