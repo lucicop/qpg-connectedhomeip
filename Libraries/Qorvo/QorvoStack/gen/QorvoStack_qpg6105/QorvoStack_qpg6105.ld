@@ -224,14 +224,6 @@ SECTIONS
         libgcc.a ( * )
     }
 
-    .factory_data 0x4004500:
-    {
-        factory_data_Start = . ;
-        KEEP(*(factory_data.data));
-        .  = factory_data_Start + 0xb00;
-        factory_data_End = . ;
-    } > FLASH
-
     .JTOTA eFLASH - 0x61000:
     {
         JTOTA_Start = . ;
